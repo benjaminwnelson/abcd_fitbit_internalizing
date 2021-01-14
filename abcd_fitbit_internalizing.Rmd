@@ -1,0 +1,1453 @@
+---
+title: "ACBD Fitbit Mental Health"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+#Set Working Directory
+```{r}
+setwd("~/Desktop/Manuscripts/ABCD Fitbit and Internalizing")
+```
+
+# Load Packages_______________________________________
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tidyr)
+library(tidylog)
+library(ggplot2)
+library(dplyr)
+library(psych)
+library(lubridate)
+library(summarytools)
+library(styler)
+library(readr)
+library(janitor)
+
+library(corrplot)
+library(zoo)
+library(magrittr)
+library(readr)
+library(naniar)
+library(car)
+library(reshape2)
+library(jmv)
+library(sjPlot)
+library(sjstats)
+```
+
+#Load Data
+```{r}
+#Fitbit
+fitbit <- data.table::fread("~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/Cleaned Data/fitbit_daily_cleaned_12.3.20.csv")
+
+#Demographics
+demographics <- data.table::fread("~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/Cleaned Data/demographics_cleaned.csv")
+
+#CBCL
+cbcl_data <- data.table::fread("~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/Cleaned Data/cbcl_cleaned.csv")
+
+#Anthropometrics
+anthropometrics_data <- data.table::fread("~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/Cleaned Data/anthropometrics_cleaned.csv")
+
+#KSADS
+ksads_data <- data.table::fread("~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/Cleaned Data/ksads_final_current_cleaned_1.7.21.csv")
+```
+
+#Merge Data
+```{r}
+#Merge fitbit and cbcl
+data1 <- left_join(fitbit, cbcl_data, by = c("subject_id", "subject_key", "sex", "wave"))
+
+#Add demographics
+data2 <- left_join(data1, demographics, by = "subject_id")
+
+#Add anthropometrics
+data3 <- left_join(data2, anthropometrics_data, by = c("subject_id", "wave"))
+
+#Add age
+data4 <- left_join(data3, ksads_data, by = c("subject_id", "wave"))
+```
+
+#Cross-Sectional Data Cleaning
+##Rename Waves
+```{r}
+data4$wave <- as.character(data4$wave)
+
+data4$wave <- factor(data4$wave,
+                            levels = c("baseline_year_1_arm_1", "2_year_follow_up_y_arm_1"),
+                            labels = c("w1", "w2"))
+```
+
+##Keep Only W2 Data
+```{r}
+data_final <- data4 %>% 
+  dplyr::filter(wave == "w2")
+```
+
+##Select Final Variables
+```{r}
+data_final <- data_final %>% 
+  dplyr::select(c(subject_id = subject_id,
+                  wave = wave,
+                  resting_hr_mean = resting_hr_mean,
+                  resting_hr_sd = resting_hr_sd,
+                  step_total_cleaned_mean = step_total_cleaned_mean,
+                  step_total_cleaned_sd = step_total_cleaned_sd,
+                  total_sleep_minutes_mean = total_sleep_minutes_mean,
+                  total_sleep_minutes_sd = total_sleep_minutes_sd,
+                  cbcl_internal = cbcl_internal,
+                  gender,
+                  race,
+                  ethnicity,
+                  family_income,
+                  bmi,
+                  ksads_age,
+                  sex))
+```
+
+#Check Data Structure and Rename Variables
+```{r}
+#Change Data Structure
+str(data_final)
+
+data_final$wave <- as.factor(data_final$wave)
+data_final$resting_hr_mean <- as.numeric(data_final$resting_hr_mean)
+data_final$resting_hr_sd <- as.numeric(data_final$resting_hr_sd)
+data_final$step_total_cleaned_mean <- as.numeric(data_final$step_total_cleaned_mean)
+data_final$step_total_cleaned_sd <- as.numeric(data_final$step_total_cleaned_sd)
+data_final$total_sleep_minutes_mean <- as.numeric(data_final$total_sleep_minutes_mean)
+data_final$total_sleep_minutes_sd <- as.numeric(data_final$total_sleep_minutes_sd)
+data_final$cbcl_internal <- as.numeric(data_final$cbcl_internal)
+data_final$gender <- as.factor(data_final$gender)
+data_final$race <- as.factor(data_final$race)
+data_final$ethnicity <- as.factor(data_final$ethnicity)
+data_final$family_income <- as.numeric(data_final$family_income)
+data_final$bmi <- as.numeric(data_final$bmi)
+data_final$ksads_age <- as.numeric(data_final$ksads_age)
+data_final$sex <- as.factor(data_final$sex)
+
+#Change Variables
+data_final$age_years <- data_final$ksads_age/12
+```
+
+#Check Missing Data
+```{r}
+library(naniar)
+
+#Overall missing data
+data_final %>% 
+  vis_miss()
+
+#Combination of missing data
+data_final %>% 
+  gg_miss_upset()
+
+#Count of missing data
+data_final %>% 
+  gg_miss_var()
+```
+
+
+####################################################################
+#Descriptives
+##Age
+```{r}
+describe(data_final$age_years)
+```
+
+##Sex
+```{r}
+sex <- data_final %>% 
+  freq(sex)
+
+sex <- as.data.frame(sex)
+
+
+write.csv(sex, file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/Tables/sex.csv")
+```
+
+##Race
+```{r}
+race <- data_final %>% 
+  freq(race)
+
+race <- as.data.frame(race)
+
+write.csv(race, file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/Tables/race.csv")
+
+#Change reference level to White
+data_final$race <- factor(data_final$race, levels = c("race_white",
+                                                      "race_black", 
+                                                      "race_native_american",
+                                                      "race_native_alaskan",
+                                                      "race_native_hawaiian",
+                                                      "race_guamanian",
+                                                      "race_samoan",
+                                                      "race_other_pacific_islander",
+                                                      "race_asian_indian",
+                                                      "race_chinese",
+                                                      "race_filipino",
+                                                      "race_japanese",
+                                                      "race_korean",
+                                                      "race_vietnamese",
+                                                      "race_other_asian",
+                                                      "race_other",
+                                                      "race_refuse_to_answer",
+                                                      "race_dont_know"))
+
+#Make White reference group
+data_final <- within(data_final, race <- relevel(race, ref = "race_white"))
+```
+
+##Ethnicity
+```{r}
+ethnicity <- data_final %>% 
+  freq(ethnicity)
+
+ethnicity <- as.data.frame(ethnicity)
+
+write.csv(ethnicity, file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/Tables/ethnicity.csv")
+```
+
+##SES
+```{r}
+ses <- data_final %>% 
+  freq(family_income)
+
+ses <- as.data.frame(ses)
+
+write.csv(ses, file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/Tables/ses.csv")
+```
+
+##BMI
+```{r}
+describe(data_final$bmi)
+```
+
+
+#####################################################################
+#Cross Sectional Analyses
+
+#Imputed Analyses
+##Check Missingness
+```{r}
+data_final_imp <- data_final %>% 
+  dplyr::select(-c(race, sex, wave, ethnicity, gender, ksads_age))
+
+Missinginfo <- MissMech::OrderMissing(data_final_imp, del.lesscases = 0)
+summary(Missinginfo)
+data.nummat <- data.matrix(data_final_imp, rownames.force = NA)
+data.out <- MissMech::TestMCARNormality(data.nummat) #Singular
+data.out
+```
+
+##Imputation
+```{r}
+library(mice)
+
+set.seed(123)
+
+all_imputations <- mice::mice(data_final, maxit= 10, m = 10)
+
+all_imputations <- mice::complete(all_imputations, "long")
+
+final_imputations <- all_imputations %>% 
+  group_by(subject_id, wave) %>% #removed .id
+  summarise_each(funs(mean))
+
+demo <- data_final %>% 
+  dplyr::select(subject_id, race, sex, wave)
+
+final_imputations <- left_join(final_imputations, demo, by = "subject_id")
+
+final_imputations <- final_imputations %>% 
+  select(subject_id, 
+  wave = wave.x, 
+  resting_hr_mean,
+  resting_hr_sd, 
+  step_total_cleaned_mean, 
+  step_total_cleaned_sd, 
+  total_sleep_minutes_mean, 
+  total_sleep_minutes_sd, 
+  cbcl_internal,
+  race = race.y,
+  family_income,
+  bmi,
+  sex = sex.y,
+  age_years)
+  
+```
+
+###Check for Step Outliers
+```{r}
+describe(final_imputations$resting_hr_mean)
+```
+
+###Check for Step Outliers
+```{r}
+describe(final_imputations$step_total_cleaned_mean)
+```
+
+###Check for Sleep Outliers
+```{r}
+describe(final_imputations$total_sleep_minutes_mean)
+```
+
+###Check BMI for Outliers
+```{r}
+describe(final_imputations$bmi) #There were three BMI values over 100, which are biologically implausible. Remove and replace with NA
+
+final_imputations$bmi[final_imputations$bmi > 100] <- NA
+```
+
+###Check SES for Outliers
+```{r}
+describe(final_imputations$family_income)
+```
+
+##Create Centered Predictors
+```{r}
+#Center HR
+final_imputations$hr_mean_centered <- QuantPsyc::meanCenter(final_imputations$resting_hr_mean)
+final_imputations$hr_sd_centered <- QuantPsyc::meanCenter(final_imputations$resting_hr_sd)
+
+#Center Steps
+final_imputations$steps_mean_centered <- QuantPsyc::meanCenter(final_imputations$step_total_cleaned_mean)
+final_imputations$steps_sd_centered <- QuantPsyc::meanCenter(final_imputations$step_total_cleaned_sd)
+
+#Center Sleep
+final_imputations$sleep_mean_centered <- QuantPsyc::meanCenter(final_imputations$total_sleep_minutes_mean)
+final_imputations$sleep_sd_centered <- QuantPsyc::meanCenter(final_imputations$total_sleep_minutes_sd)
+
+#Family Income
+final_imputations$family_income_centered <- QuantPsyc::meanCenter(final_imputations$family_income)
+
+#Age Centered
+final_imputations$age_years_centered <- QuantPsyc::meanCenter(final_imputations$age_years)
+
+#Center BMI
+final_imputations$bmi_centered <- QuantPsyc::meanCenter(final_imputations$bmi)
+```
+
+##Change reference level to White
+```{r}
+final_imputations$race <- factor(final_imputations$race, levels = c("race_white",
+                                          "race_black", 
+                                          "race_native_american",
+                                          "race_native_alaskan",
+                                          "race_native_hawaiian",
+                                          "race_guamanian",
+                                          "race_samoan",
+                                          "race_other_pacific_islander",
+                                          "race_asian_indian",
+                                          "race_chinese",
+                                          "race_filipino",
+                                          "race_japanese",
+                                          "race_korean",
+                                          "race_vietnamese",
+                                          "race_other_asian",
+                                          "race_other",
+                                          "race_refuse_to_answer",
+                                          "race_dont_know"))
+
+#Make White reference group
+final_imputations$race <- relevel(final_imputations$race, "race_white")
+
+#Make White reference group
+data_final$race <- relevel(data_final$race, "race_white")
+```
+
+
+##Imputed Cross-Sectional Analysis
+##Unadjusted HR Mean w2_imp
+```{r}
+hr_mean_model_unadjusted_w2_imp <- lm(cbcl_internal ~ hr_mean_centered, data = final_imputations)
+summary(hr_mean_model_unadjusted_w2_imp)
+
+standardized_hr_mean_model_unadjusted_w2_imp <- arm::standardize(hr_mean_model_unadjusted_w2_imp) #standardize model to interpret estimates
+summary(standardized_hr_mean_model_unadjusted_w2_imp)
+performance::check_model(standardized_hr_mean_model_unadjusted_w2_imp)
+report::report(standardized_hr_mean_model_unadjusted_w2_imp)
+```
+
+##Unadjusted HR SD w2_imp
+```{r}
+hr_sd_model_unadjusted_w2_imp <- lm(cbcl_internal ~ hr_sd_centered, data = final_imputations)
+summary(hr_sd_model_unadjusted_w2_imp)
+
+standardized_hr_sd_model_unadjusted_w2_imp <- arm::standardize(hr_sd_model_unadjusted_w2_imp) #standardize model to interpret estimates
+summary(standardized_hr_sd_model_unadjusted_w2_imp)
+performance::check_model(standardized_hr_sd_model_unadjusted_w2_imp)
+report::report(standardized_hr_sd_model_unadjusted_w2_imp)
+```
+
+##Unadjusted Steps Mean w2_imp
+```{r}
+step_mean_model_unadjusted_w2_imp <- lm(cbcl_internal ~ steps_mean_centered, data = final_imputations)
+summary(step_mean_model_unadjusted_w2_imp)
+
+standardized_step_mean_model_unadjusted_w2_imp <- arm::standardize(step_mean_model_unadjusted_w2_imp) #standardize model to hrerpret estimates
+summary(standardized_step_mean_model_unadjusted_w2_imp)
+performance::check_model(standardized_step_mean_model_unadjusted_w2_imp)
+report::report(standardized_step_mean_model_unadjusted_w2_imp)
+```
+
+##Unadjusted Steps SD w2_imp
+```{r}
+step_sd_model_unadjusted_w2_imp <- lm(cbcl_internal ~ steps_sd_centered, data = final_imputations)
+summary(step_sd_model_unadjusted_w2_imp)
+
+standardized_step_sd_model_unadjusted_w2_imp <- arm::standardize(step_sd_model_unadjusted_w2_imp) #standardize model to hrerpret estimates
+summary(standardized_step_sd_model_unadjusted_w2_imp)
+performance::check_model(standardized_step_sd_model_unadjusted_w2_imp)
+report::report(standardized_step_sd_model_unadjusted_w2_imp)
+```
+
+##Unadjusted Sleep Mean w2_imp
+```{r}
+sleep_mean_model_unadjusted_w2_imp <- lm(cbcl_internal ~ sleep_mean_centered, data = final_imputations)
+summary(sleep_mean_model_unadjusted_w2_imp)
+
+standardized_sleep_mean_model_unadjusted_w2_imp <- arm::standardize(sleep_mean_model_unadjusted_w2_imp) #standardize model to hrerpret estimates
+summary(standardized_sleep_mean_model_unadjusted_w2_imp)
+performance::check_model(standardized_sleep_mean_model_unadjusted_w2_imp)
+report::report(standardized_sleep_mean_model_unadjusted_w2_imp)
+```
+
+##Unadjusted Sleep SD w2_imp
+```{r}
+sleep_sd_model_unadjusted_w2_imp <- lm(cbcl_internal ~ sleep_sd_centered, data = final_imputations)
+summary(sleep_sd_model_unadjusted_w2_imp)
+
+standardized_sleep_sd_model_unadjusted_w2_imp <- arm::standardize(sleep_sd_model_unadjusted_w2_imp) #standardize model to hrerpret estimates
+summary(standardized_sleep_sd_model_unadjusted_w2_imp)
+performance::check_model(standardized_sleep_sd_model_unadjusted_w2_imp)
+report::report(standardized_sleep_sd_model_unadjusted_w2_imp)
+```
+
+##Adjusted Fitbit w2_imp
+```{r}
+fitbit_model_adjusted_w2_imp <- lm(cbcl_internal ~ hr_mean_centered + hr_sd_centered + steps_mean_centered + steps_sd_centered + sleep_mean_centered + sleep_sd_centered, data = final_imputations)
+summary(fitbit_model_adjusted_w2_imp)
+
+standardized_fitbit_model_adjusted_w2_imp <- arm::standardize(fitbit_model_adjusted_w2_imp) #standardize model to hrerpret estimates
+summary(standardized_fitbit_model_adjusted_w2_imp)
+performance::check_model(standardized_fitbit_model_adjusted_w2_imp)
+report::report(standardized_fitbit_model_adjusted_w2_imp)
+```
+
+##Final Model Imp
+```{r}
+int_model_adjusted_w2_imp <- lm(cbcl_internal ~ hr_mean_centered + hr_sd_centered + steps_mean_centered + steps_sd_centered + sleep_mean_centered + sleep_sd_centered + sex + age_years_centered + family_income_centered + race + bmi_centered, data = final_imputations)
+summary(int_model_adjusted_w2_imp)
+report::report(int_model_adjusted_w2_imp)
+
+#Standardize Model
+standardized_int_model_adjusted_w2_imp <- arm::standardize(int_model_adjusted_w2_imp) #standardize model to interpret estimates
+summary(standardized_int_model_adjusted_w2_imp)
+performance::check_model(standardized_int_model_adjusted_w2_imp)
+report::report(standardized_int_model_adjusted_w2)
+
+hr_w2_plot_imp <- ggplot(final_imputations, aes(x = hr_mean_centered, y = cbcl_internal)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  viridis::scale_fill_viridis() +
+  theme(
+    legend.position='none'
+  ) + 
+  geom_jitter(shape = '.') + 
+  geom_smooth(method = "lm", color = "white") + 
+  geom_rug(alpha=0.1, size=1.5, outside = TRUE, sides = "tr") + 
+  coord_cartesian(clip = "off") +
+   theme(plot.margin = margin(1, 1, 1, 1, "cm")) + 
+  labs(x = "Resting HR", y = "CBCL Internalizing Symptoms")
+
+step_w2_plot_imp <- ggplot(final_imputations, aes(x = steps_mean_centered, y = cbcl_internal)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  viridis::scale_fill_viridis() +
+  theme(
+    legend.position='none'
+  ) + 
+  geom_jitter(shape = '.') + 
+  geom_smooth(method = "lm", color = "white") + 
+  geom_rug(alpha=0.1, size=1.5, outside = TRUE, sides = "tr") + 
+  coord_cartesian(clip = "off") +
+   theme(plot.margin = margin(1, 1, 1, 1, "cm")) + 
+  labs(x = "Step Count", y = "CBCL Internalizing Symptoms")
+
+sleep_w2_plot_imp <- ggplot(final_imputations, aes(x = sleep_sd_centered, y = cbcl_internal)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  viridis::scale_fill_viridis() +
+  theme(
+    legend.position='none'
+  ) + 
+  geom_jitter(shape = '.') + 
+  geom_smooth(method = "lm", color = "white") + 
+  geom_rug(alpha=0.1, size=1.5, outside = TRUE, sides = "tr") + 
+  coord_cartesian(clip = "off") +
+   theme(plot.margin = margin(1, 1, 1, 1, "cm")) + 
+  labs(x = "Sleep Duration SD", y = "CBCL Internalizing Symptoms")
+
+ggpubr::ggarrange(hr_w2_plot_imp, step_w2_plot_imp, sleep_w2_plot_imp, 
+                  labels = c("A", "B", "C"),
+                  ncol = 3, nrow = 1)
+```
+
+##Compare Cross Sectional Int Model Fits
+```{r}
+model_comparison <- performance::compare_performance(standardized_hr_mean_model_unadjusted_w2_imp,
+                                 standardized_hr_sd_model_unadjusted_w2_imp,
+                                 standardized_step_mean_model_unadjusted_w2_imp,
+                                 standardized_step_sd_model_unadjusted_w2_imp,
+                                 standardized_sleep_mean_model_unadjusted_w2_imp,
+                                 standardized_sleep_sd_model_unadjusted_w2_imp,
+                                 standardized_fitbit_model_adjusted_w2_imp, 
+                                 standardized_int_model_adjusted_w2_imp)
+
+
+write.csv(model_comparison, file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/Tables/model_comparison.csv")
+```
+
+##Print Table
+```{r}
+tab_model(standardized_int_model_adjusted_w2_imp,
+          dv.labels = c("Adjusted"),
+          show.se = TRUE,
+          string.ci = "Conf. Int (95%)",
+          string.p = "P-Value",
+          digits = 3,
+          file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/CrossSectionalResults_W2.doc")
+```
+
+##Print Supplementary Tables
+```{r}
+tab_model(standardized_hr_mean_model_unadjusted_w2_imp, standardized_hr_sd_model_unadjusted_w2_imp,
+          show.se = TRUE,
+          string.ci = "Conf. Int (95%)",
+          string.p = "P-Value",
+          digits = 3,
+          file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/hr_models_W2.doc")
+
+tab_model(standardized_step_mean_model_unadjusted_w2_imp, standardized_step_sd_model_unadjusted_w2_imp,
+          show.se = TRUE,
+          string.ci = "Conf. Int (95%)",
+          string.p = "P-Value",
+          digits = 3,
+          file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/step_models_W2.doc")
+
+tab_model(standardized_sleep_mean_model_unadjusted_w2_imp, standardized_sleep_sd_model_unadjusted_w2_imp,
+          show.se = TRUE,
+          string.ci = "Conf. Int (95%)",
+          string.p = "P-Value",
+          digits = 3,
+          file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/sleep_models_W2.doc")
+
+tab_model(standardized_fitbit_model_adjusted_w2_imp,
+          show.se = TRUE,
+          string.ci = "Conf. Int (95%)",
+          string.p = "P-Value",
+          digits = 3,
+          file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/fitbit_models_W2.doc")
+```
+
+##Correlation Among Variables
+###Correlation Matrix
+```{r}
+correlation <- final_imputations %>% 
+  dplyr::select(subject_id,
+                resting_hr_mean,
+                resting_hr_sd,
+                step_total_cleaned_mean,
+                step_total_cleaned_sd,
+                total_sleep_minutes_mean,
+                total_sleep_minutes_sd,
+                cbcl_internal,
+                family_income,
+                bmi,
+                age_years)
+
+CorrelationMatrix <- cor(correlation[, 2:11], use = "complete.obs")
+CorrelationMatrix
+
+colnames(CorrelationMatrix) <- c("Resting HR", "Resting HR SD", "Step Count", "Step Count SD", "Sleep Duration", "Sleep Duration SD", "CBCL Internalizing Score", "SES", "BMI", "Age")
+
+rownames(CorrelationMatrix) <- c("", "", "", "", "", "", "", "", "", "")
+
+# Graph Correlations
+library(corrplot)
+corrplot(CorrelationMatrix, method = "ellipse", type = "lower", addCoef.col = "black", tl.col = "black", number.cex = .7, tl.srt = 45)
+```
+
+##Psychosocial Differences
+
+###Sex
+```{r}
+final_imputations$sex <-  rename(final_imputations$sex,
+         "F" = 0,
+         "M" = 1)
+
+final_imputations$sex <- factor(final_imputations$sex,
+                   levels = c(0,1),
+                   labels = c("Female", "Male")) 
+
+#HR Mean
+sex_hr_diff <- t.test(resting_hr_mean ~ sex, data = final_imputations)
+report::report(sex_hr_diff)
+psych::describeBy(final_imputations$resting_hr_mean, group = final_imputations$sex)
+sex_hr_diff_plot <- yarrr::pirateplot(resting_hr_mean ~ sex, data = final_imputations)
+ggstatsplot::ggbetweenstats(
+  data = final_imputations,
+  x = sex,
+  y = resting_hr_mean,
+  title = "Resting HR by Sex",
+  p.adjust.method = "bonferroni",
+  pairwise.comparisons = TRUE,
+  xlab = "Sex",
+  ylab = "Resting Heart Rate"
+)
+
+sex_hr_diff_graph <- final_imputations %>%
+  select(subject_id, sex, resting_hr_mean)
+
+sex_hr_diff_graph <- na.omit(sex_hr_diff_graph)
+
+
+
+mean_difference_hr <- dabestr::dabest(sex_hr_diff_graph, sex, resting_hr_mean,
+       idx = c("Female", "Male"),
+       paired = FALSE)
+
+plot(mean_difference_hr)
+
+#HR SD
+sex_hr_sd_diff <- t.test(resting_hr_sd ~ sex, data = final_imputations)
+report::report(sex_hr_sd_diff)
+psych::describeBy(final_imputations$resting_hr_sd, group = final_imputations$sex)
+sex_hr_sd_diff_plot <- yarrr::pirateplot(resting_hr_sd~ sex, data = final_imputations)
+
+#Step Count Mean
+sex_step_diff <- t.test(step_total_cleaned_mean ~ sex, data = final_imputations)
+report::report(sex_step_diff)
+psych::describeBy(final_imputations$step_total_cleaned_mean, group = final_imputations$sex)
+sex_step_diff_plot <- yarrr::pirateplot(step_total_cleaned_mean ~ sex, data = final_imputations)
+ggstatsplot::ggbetweenstats(
+  data = final_imputations,
+  x = sex,
+  y = step_total_cleaned_mean,
+  title = "Step Count by Sex",
+  p.adjust.method = "bonferroni",
+  pairwise.comparisons = TRUE,
+  xlab = "Sex",
+  ylab = "Step Count"
+)
+
+#Step Count SD
+sex_step_sd_diff <- t.test(step_total_cleaned_sd ~ sex, data = final_imputations)
+report::report(sex_step_sd_diff)
+psych::describeBy(final_imputations$step_total_cleaned_sd, group = final_imputations$sex)
+sex_step_sd_diff_plot <- yarrr::pirateplot(step_total_cleaned_sd ~ sex, data = final_imputations)
+
+#Sleep Mean
+sex_sleep_diff <- t.test(total_sleep_minutes_mean ~ sex, data = final_imputations)
+report::report(sex_sleep_diff)
+psych::describeBy(final_imputations$total_sleep_minutes_mean, group = final_imputations$sex)
+sex_sleep_diff_plot <- yarrr::pirateplot(total_sleep_minutes_mean ~ sex, data = final_imputations)
+final_imputations$sleep_hour <- final_imputations$total_sleep_minutes_mean/60
+ggstatsplot::ggbetweenstats(
+  data = final_imputations,
+  x = sex,
+  y = sleep_hour,
+  title = "Sleep Duration by Sex",
+  p.adjust.method = "bonferroni",
+  pairwise.comparisons = TRUE,
+  xlab = "Sex",
+  ylab = "Sleep Duration"
+)
+
+#Sleep SD
+sex_sleep_sd_diff <- t.test(total_sleep_minutes_sd ~ sex, data = final_imputations)
+report::report(sex_sleep_sd_diff)
+psych::describeBy(final_imputations$total_sleep_minutes_sd, group = final_imputations$sex)
+sex_sleep_sd_diff_plot <- yarrr::pirateplot(total_sleep_minutes_sd ~ sex, data = final_imputations)
+
+#Internalizing
+sex_internal_diff <- t.test(cbcl_internal ~ sex, data = final_imputations)
+report::report(sex_internal_diff)
+psych::describeBy(final_imputations$cbcl_internal, group = final_imputations$sex)
+sex_internal_diff_plot <- yarrr::pirateplot(cbcl_internal ~ sex, data = final_imputations)
+ggstatsplot::ggbetweenstats(
+  data = final_imputations,
+  x = sex,
+  y = cbcl_internal,
+  title = "CBCL Internalizing Symptoms by Sex",
+  p.adjust.method = "bonferroni",
+  pairwise.comparisons = TRUE,
+  xlab = "Sex",
+  ylab = "CBCL Internalizing Symptoms"
+)
+
+ggpubr::ggarrange(sex_hr_diff_plot, sex_hr_sd_diff_plot, 
+                  sex_step_diff_plot, sex_step_sd_diff_plot,
+                  sex_sleep_diff_plot, sex_sleep_sd_diff_plot,
+                  labels = c("A", "B", 
+                             "C", "D",
+                             "E", "F"),
+                  ncol = 2, nrow = 3)
+```
+
+###Race
+```{r}
+race_hr_diff <- aov(resting_hr_mean ~ race, data = final_imputations)
+summary(race_hr_diff)
+report::report(race_hr_diff)
+yarrr::pirateplot(resting_hr_mean ~ race, data = final_imputations)
+modelbased::estimate_contrasts(race_hr_diff)
+modelbased::estimate_means(race_hr_diff)
+
+# for reproducibility
+set.seed(123)
+library(ggstatsplot)
+
+ggstatsplot::ggbetweenstats(
+  data = final_imputations,
+  x = race,
+  y = resting_hr_mean,
+  title = "Resting HR by Race",
+  p.adjust.method = "bonferroni",
+  pairwise.comparisons = TRUE
+)
+
+race_step_diff <- aov(step_total_cleaned_mean ~ race, data = final_imputations)
+summary(race_step_diff)
+report::report(race_step_diff)
+yarrr::pirateplot(step_total_cleaned_mean ~ race, data = final_imputations)
+ggstatsplot::ggbetweenstats(
+  data = final_imputations,
+  x = race,
+  y = step_total_cleaned_mean,
+  title = "Step Count by Race",
+  p.adjust.method = "bonferroni",
+  pairwise.comparisons = TRUE
+)
+
+race_figure <- final_imputations %>% 
+  dplyr::select(subject_id, total_sleep_minutes_mean, race)
+
+race_figure$sleep_hour <- race_figure$total_sleep_minutes_mean/60
+
+race_sleep_diff <-  aov(total_sleep_minutes_mean ~ race, data = final_imputations)
+summary(race_sleep_diff)
+report::report(race_sleep_diff)
+yarrr::pirateplot((total_sleep_minutes_mean/60) ~ race, data = final_imputations)
+ggstatsplot::ggbetweenstats(
+  data = race_figure,
+  x = race,
+  y = sleep_hour,
+  title = "Sleep Duration by Race",
+  p.adjust.method = "bonferroni",
+  pairwise.comparisons = TRUE
+)
+
+race_internal_diff <-  aov(cbcl_internal ~ race, data = final_imputations)
+summary(race_internal_diff)
+report::report(race_internal_diff)
+yarrr::pirateplot(cbcl_internal ~ race, data = final_imputations)
+ggstatsplot::ggbetweenstats(
+  data = final_imputations,
+  x = race,
+  y = cbcl_internal,
+  title = "CBCL Internalizing Symptoms by Race",
+  p.adjust.method = "bonferroni",
+  pairwise.comparisons = TRUE
+)
+```
+
+#Sensitivity Analysis
+##Listwise Deletion
+###Unadjusted HR Mean W2
+```{r}
+hr_mean_model_unadjusted_w2 <- lm(cbcl_internal ~ hr_mean_centered, data = data_final)
+summary(hr_mean_model_unadjusted_w2)
+
+standardized_hr_mean_model_unadjusted_w2 <- arm::standardize(hr_mean_model_unadjusted_w2) #standardize model to interpret estimates
+summary(standardized_hr_mean_model_unadjusted_w2)
+performance::check_model(standardized_hr_mean_model_unadjusted_w2)
+report::report(standardized_hr_mean_model_unadjusted_w2)
+```
+
+###Unadjusted HR SD W2
+```{r}
+hr_sd_model_unadjusted_w2 <- lm(cbcl_internal ~ hr_sd_centered, data = data_final)
+summary(hr_sd_model_unadjusted_w2)
+
+standardized_hr_sd_model_unadjusted_w2 <- arm::standardize(hr_sd_model_unadjusted_w2) #standardize model to interpret estimates
+summary(standardized_hr_sd_model_unadjusted_w2)
+performance::check_model(standardized_hr_sd_model_unadjusted_w2)
+report::report(standardized_hr_sd_model_unadjusted_w2)
+```
+
+###Unadjusted Steps Mean W2
+```{r}
+step_mean_model_unadjusted_w2 <- lm(cbcl_internal ~ steps_mean_centered, data = data_final)
+summary(step_mean_model_unadjusted_w2)
+
+standardized_step_mean_model_unadjusted_w2 <- arm::standardize(step_mean_model_unadjusted_w2) #standardize model to hrerpret estimates
+summary(standardized_step_mean_model_unadjusted_w2)
+performance::check_model(standardized_step_mean_model_unadjusted_w2)
+report::report(standardized_step_mean_model_unadjusted_w2)
+```
+
+###Unadjusted Steps SD W2
+```{r}
+step_sd_model_unadjusted_w2 <- lm(cbcl_internal ~ steps_sd_centered, data = data_final)
+summary(step_sd_model_unadjusted_w2)
+
+standardized_step_sd_model_unadjusted_w2 <- arm::standardize(step_sd_model_unadjusted_w2) #standardize model to hrerpret estimates
+summary(standardized_step_sd_model_unadjusted_w2)
+performance::check_model(standardized_step_sd_model_unadjusted_w2)
+report::report(standardized_step_sd_model_unadjusted_w2)
+```
+
+###Unadjusted Sleep Mean W2
+```{r}
+sleep_mean_model_unadjusted_w2 <- lm(cbcl_internal ~ sleep_mean_centered, data = data_final)
+summary(sleep_mean_model_unadjusted_w2)
+
+standardized_sleep_mean_model_unadjusted_w2 <- arm::standardize(sleep_mean_model_unadjusted_w2) #standardize model to hrerpret estimates
+summary(standardized_sleep_mean_model_unadjusted_w2)
+performance::check_model(standardized_sleep_mean_model_unadjusted_w2)
+report::report(standardized_sleep_mean_model_unadjusted_w2)
+```
+
+###Unadjusted Sleep SD W2
+```{r}
+sleep_sd_model_unadjusted_w2 <- lm(cbcl_internal ~ sleep_sd_centered, data = data_final)
+summary(sleep_sd_model_unadjusted_w2)
+
+standardized_sleep_sd_model_unadjusted_w2 <- arm::standardize(sleep_sd_model_unadjusted_w2) #standardize model to hrerpret estimates
+summary(standardized_sleep_sd_model_unadjusted_w2)
+performance::check_model(standardized_sleep_sd_model_unadjusted_w2)
+report::report(standardized_sleep_sd_model_unadjusted_w2)
+```
+
+###Adjusted Fitbit W2
+```{r}
+fitbit_mean_model_adjusted_w2 <- lm(cbcl_internal ~ hr_mean_centered + hr_sd_centered + steps_mean_centered + steps_sd_centered + sleep_mean_centered + sleep_sd_centered, data = data_final)
+summary(fitbit_mean_model_adjusted_w2)
+
+standardized_fitbit_mean_model_adjusted_w2 <- arm::standardize(fitbit_mean_model_adjusted_w2) #standardize model to hrerpret estimates
+summary(standardized_fitbit_mean_model_adjusted_w2)
+performance::check_model(standardized_fitbit_mean_model_adjusted_w2)
+report::report(standardized_fitbit_mean_model_adjusted_w2)
+
+```
+
+###Adjusted Model Mean W2
+```{r}
+int_model_adjusted_w2 <- lm(cbcl_internal ~ hr_mean_centered + hr_sd_centered + steps_mean_centered + steps_sd_centered + sleep_mean_centered + sleep_sd_centered + sex + age_years_centered + family_income_centered + race + bmi_centered, data = data_final)
+summary(int_model_adjusted_w2)
+confint(int_model_adjusted_w2)
+performance::r2(int_model_adjusted_w2)
+# psycho::analyze(int_model_adjusted_w2)
+# r2mlm::r2mlm(int_model_adjusted_w2)
+ggstatsplot::ggcoefstats(int_model_adjusted_w2)
+performance::check_model(int_model_adjusted_w2)
+performance::model_performance(int_model_adjusted_w2)
+performance::check_outliers(data_final) #No outliers detected
+report::report(int_model_adjusted_w2)
+
+#Standardize Model
+standardized_int_model_adjusted_w2 <- arm::standardize(int_model_adjusted_w2) #standardize model to interpret estimates
+summary(standardized_int_model_adjusted_w2)
+performance::check_model(standardized_int_model_adjusted_w2)
+report::report(standardized_int_model_adjusted_w2)
+
+hr_w2_plot <- ggplot(data_final, aes(x = hr_mean_centered, y = cbcl_internal)) +
+  geom_jitter() +
+  geom_smooth(method = "lm") + theme(axis.ticks = element_line(colour = "black"), 
+    panel.grid.major = element_line(colour = "white"), 
+    panel.grid.minor = element_line(colour = "white"), 
+    axis.text = element_text(colour = "black"), 
+    axis.text.x = element_text(colour = "black"), 
+    axis.text.y = element_text(colour = "black"), 
+    panel.background = element_rect(fill = "white")) +labs(x = "Resting HR", y = "CBCL Internalizing Symptoms")
+
+step_w2_plot <- ggplot(data_final, aes(x = steps_mean_centered, y = cbcl_internal)) +
+  geom_jitter() +
+  geom_smooth(method = "lm") + theme(axis.ticks = element_line(colour = "black"), 
+    panel.grid.major = element_line(colour = "white"), 
+    panel.grid.minor = element_line(colour = "white"), 
+    axis.text = element_text(colour = "black"), 
+    axis.text.x = element_text(colour = "black"), 
+    axis.text.y = element_text(colour = "black"), 
+    panel.background = element_rect(fill = "white")) +labs(x = "Step Count", y = "CBCL Internalizing Symptoms")
+
+sleep_w2_plot <- ggplot(data_final, aes(x = sleep_sd_centered, y = cbcl_internal)) +
+  geom_jitter() +
+  geom_smooth(method = "lm") + theme(axis.ticks = element_line(colour = "black"), 
+    panel.grid.major = element_line(colour = "white"), 
+    panel.grid.minor = element_line(colour = "white"), 
+    axis.text = element_text(colour = "black"), 
+    axis.text.x = element_text(colour = "black"), 
+    axis.text.y = element_text(colour = "black"), 
+    panel.background = element_rect(fill = "white")) +labs(x = "Sleep Duration SD", y = "CBCL Internalizing Symptoms")
+
+ggpubr::ggarrange(hr_w2_plot, step_w2_plot, sleep_w2_plot, 
+          labels = c("A", "B", "C"),
+          ncol = 3, nrow = 1)
+
+#Other Plot Option
+#https://www.data-to-viz.com/caveat/overplotting.html
+hr_w2_plot2 <- ggplot(data_final, aes(x = hr_mean_centered, y = cbcl_internal)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  viridis::scale_fill_viridis() +
+  theme(
+    legend.position='none'
+  ) + 
+  geom_jitter(shape = '.') + 
+  geom_smooth(method = "lm") + 
+  geom_rug(alpha=0.1, size=1.5, outside = TRUE, sides = "tr") + 
+  coord_cartesian(clip = "off") +
+   theme(plot.margin = margin(1, 1, 1, 1, "cm"))
+
+hr_w2_plot2_extra <- ggExtra::ggMarginal(hr_w2_plot2, type = "histogram", fill = "black")
+
+step_w2_plot2 <- ggplot(data_final, aes(x = steps_mean_centered, y = cbcl_internal)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  viridis::scale_fill_viridis() +
+  theme(
+    legend.position='none'
+  ) + 
+  geom_jitter(shape = '.') + 
+  geom_smooth(method = "lm") + 
+  geom_rug(alpha=0.1, size=1.5, outside = TRUE, sides = "tr") + 
+  coord_cartesian(clip = "off") +
+   theme(plot.margin = margin(1, 1, 1, 1, "cm"))
+
+step_w2_plot2_extra <- ggExtra::ggMarginal(step_w2_plot2, type = "histogram")
+
+sleep_w2_plot2 <- ggplot(data_final, aes(x = sleep_sd_centered, y = cbcl_internal)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  viridis::scale_fill_viridis() +
+  theme(
+    legend.position='none'
+  ) + 
+  geom_jitter(shape = '.') + 
+  geom_smooth(method = "lm") + 
+  geom_rug(alpha=0.1, size=1.5, outside = TRUE, sides = "tr") + 
+  coord_cartesian(clip = "off") +
+   theme(plot.margin = margin(1, 1, 1, 1, "cm"))
+
+sleep_w2_plot2_extra <- ggExtra::ggMarginal(sleep_w2_plot2, type = "histogram")
+
+ggpubr::ggarrange(hr_w2_plot2, step_w2_plot2, sleep_w2_plot2, 
+          labels = c("A", "B", "C"),
+          ncol = 3, nrow = 1)
+
+ggpubr::ggarrange(hr_w2_plot2_extra, step_w2_plot2_extra, 
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1)
+
+```
+
+###Compare Cross Sectional Int Model Fits
+```{r}
+performance::compare_performance(standardized_hr_mean_model_unadjusted_w2,
+                                 standardized_hr_sd_model_unadjusted_w2,
+                                 standardized_step_mean_model_unadjusted_w2,
+                                 standardized_step_sd_model_unadjusted_w2,
+                                 standardized_sleep_mean_model_unadjusted_w2,
+                                 standardized_sleep_sd_model_unadjusted_w2,
+                                 standardized_fitbit_mean_model_adjusted_w2, 
+                                 standardized_fitbit_sd_model_adjusted_w2, 
+                                 standardized_int_model_adjusted_w2)
+```
+
+###Print Table
+```{r}
+tab_model(standardized_int_model_adjusted_w2,
+          dv.labels = c("Adjusted"),
+          show.se = TRUE,
+          string.ci = "Conf. Int (95%)",
+          string.p = "P-Value",
+          digits = 3,
+          file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/CrossSectionalResults_W2_listwise_deletion.doc")
+```
+
+##Winzorize
+###Sensitivity analysis winsorize all values
+```{r}
+data_w2_sensitivity_win <- final_imputations
+library(DescTools)
+data_w2_sensitivity_win$resting_hr_mean <- Winsorize(data_w2_sensitivity_win$resting_hr_mean, na.rm = TRUE)
+data_w2_sensitivity_win$resting_hr_sd <- Winsorize(data_w2_sensitivity_win$resting_hr_sd, na.rm = TRUE)
+data_w2_sensitivity_win$step_total_cleaned_mean <- Winsorize(data_w2_sensitivity_win$step_total_cleaned_mean, na.rm = TRUE)
+data_w2_sensitivity_win$step_total_cleaned_sd <- Winsorize(data_w2_sensitivity_win$step_total_cleaned_sd, na.rm = TRUE)
+data_w2_sensitivity_win$total_sleep_minutes_mean <- Winsorize(data_w2_sensitivity_win$total_sleep_minutes_mean, na.rm = TRUE)
+data_w2_sensitivity_win$total_sleep_minutes_sd <- Winsorize(data_w2_sensitivity_win$total_sleep_minutes_sd, na.rm = TRUE)
+data_w2_sensitivity_win$bmi <- Winsorize(data_w2_sensitivity_win$bmi, na.rm = TRUE)
+data_w2_sensitivity_win$cbcl_internal <- Winsorize(data_w2_sensitivity_win$cbcl_internal, na.rm = TRUE)
+```
+
+###Create Centered Predictors
+```{r}
+#Center HR
+data_w2_sensitivity_win$hr_mean_centered <- QuantPsyc::meanCenter(data_w2_sensitivity_win$resting_hr_mean)
+data_w2_sensitivity_win$hr_sd_centered <- QuantPsyc::meanCenter(data_w2_sensitivity_win$resting_hr_sd)
+
+#Center Steps
+data_w2_sensitivity_win$steps_mean_centered <- QuantPsyc::meanCenter(data_w2_sensitivity_win$step_total_cleaned_mean)
+data_w2_sensitivity_win$steps_sd_centered <- QuantPsyc::meanCenter(data_w2_sensitivity_win$step_total_cleaned_sd)
+
+#Center Sleep
+data_w2_sensitivity_win$sleep_mean_centered <- QuantPsyc::meanCenter(data_w2_sensitivity_win$total_sleep_minutes_mean)
+data_w2_sensitivity_win$sleep_sd_centered <- QuantPsyc::meanCenter(data_w2_sensitivity_win$total_sleep_minutes_sd)
+
+#Family Income
+data_w2_sensitivity_win$family_income_centered <- QuantPsyc::meanCenter(data_w2_sensitivity_win$family_income)
+
+#Age Centered
+data_w2_sensitivity_win$age_years_centered <- QuantPsyc::meanCenter(data_w2_sensitivity_win$age_years)
+
+#Center BMI
+data_w2_sensitivity_win$bmi_centered <- QuantPsyc::meanCenter(data_w2_sensitivity_win$bmi)
+```
+
+###Unadjusted HR Mean W2
+```{r}
+hr_mean_model_unadjusted_w2_win <- lm(cbcl_internal ~ hr_mean_centered, data = data_w2_sensitivity_win)
+summary(hr_mean_model_unadjusted_w2_win)
+
+standardized_hr_mean_model_unadjusted_w2_win <- arm::standardize(hr_mean_model_unadjusted_w2_win) #standardize model to hrerpret estimates
+summary(standardized_hr_mean_model_unadjusted_w2_win)
+performance::check_model(standardized_hr_mean_model_unadjusted_w2_win)
+report::report(standardized_hr_mean_model_unadjusted_w2_win)
+```
+
+###Unadjusted HR SD W2
+```{r}
+hr_sd_model_unadjusted_w2_win <- lm(cbcl_internal ~ hr_sd_centered, data = data_w2_sensitivity_win)
+summary(hr_sd_model_unadjusted_w2_win)
+
+standardized_hr_sd_model_unadjusted_w2_win <- arm::standardize(hr_sd_model_unadjusted_w2_win) #standardize model to hrerpret estimates
+summary(standardized_hr_sd_model_unadjusted_w2_win)
+performance::check_model(standardized_hr_sd_model_unadjusted_w2_win)
+report::report(standardized_hr_sd_model_unadjusted_w2_win)
+```
+
+###Unadjusted Steps Mean W2
+```{r}
+step_mean_model_unadjusted_w2_win <- lm(cbcl_internal ~ steps_mean_centered, data = data_w2_sensitivity_win)
+summary(step_mean_model_unadjusted_w2_win)
+
+standardized_step_mean_model_unadjusted_w2_win <- arm::standardize(step_mean_model_unadjusted_w2_win) #standardize model to hrerpret estimates
+summary(standardized_step_mean_model_unadjusted_w2_win)
+performance::check_model(standardized_step_mean_model_unadjusted_w2_win)
+report::report(standardized_step_mean_model_unadjusted_w2_win)
+```
+
+###Unadjusted Steps sd W2
+```{r}
+step_sd_model_unadjusted_w2_win <- lm(cbcl_internal ~ steps_sd_centered, data = data_w2_sensitivity_win)
+summary(step_sd_model_unadjusted_w2_win)
+
+standardized_step_sd_model_unadjusted_w2_win <- arm::standardize(step_sd_model_unadjusted_w2_win) #standardize model to hrerpret estimates
+summary(standardized_step_sd_model_unadjusted_w2_win)
+performance::check_model(standardized_step_sd_model_unadjusted_w2_win)
+report::report(standardized_step_sd_model_unadjusted_w2_win)
+```
+
+###Unadjusted Sleep Mean W2
+```{r}
+sleep_mean_model_unadjusted_w2_win <- lm(cbcl_internal ~ sleep_mean_centered, data = data_w2_sensitivity_win)
+summary(sleep_mean_model_unadjusted_w2_win)
+
+standardized_sleep_mean_model_unadjusted_w2_win <- arm::standardize(sleep_mean_model_unadjusted_w2_win) #standardize model to hrerpret estimates
+summary(standardized_sleep_mean_model_unadjusted_w2_win)
+performance::check_model(standardized_sleep_mean_model_unadjusted_w2_win)
+report::report(standardized_sleep_mean_model_unadjusted_w2_win)
+```
+
+###Unadjusted Sleep SD W2
+```{r}
+sleep_sd_model_unadjusted_w2_win <- lm(cbcl_internal ~ sleep_sd_centered, data = data_w2_sensitivity_win)
+summary(sleep_sd_model_unadjusted_w2_win)
+
+standardized_sleep_sd_model_unadjusted_w2_win <- arm::standardize(sleep_sd_model_unadjusted_w2_win) #standardize model to hrerpret estimates
+summary(standardized_sleep_sd_model_unadjusted_w2_win)
+performance::check_model(standardized_sleep_sd_model_unadjusted_w2_win)
+report::report(standardized_sleep_sd_model_unadjusted_w2_win)
+```
+
+###Adjusted Fitbit W2
+```{r}
+fitbit_model_adjusted_w2_win <- lm(cbcl_internal ~ hr_mean_centered + hr_sd_centered + steps_mean_centered + steps_sd_centered + sleep_mean_centered + sleep_sd_centered, data = data_w2_sensitivity_win)
+summary(fitbit_model_adjusted_w2_win)
+
+standardized_fitbit_model_adjusted_w2_win <- arm::standardize(fitbit_model_adjusted_w2_win) #standardize model to hrerpret estimates
+summary(standardized_fitbit_model_adjusted_w2_win)
+performance::check_model(standardized_fitbit_model_adjusted_w2_win)
+report::report(standardized_fitbit_model_adjusted_w2_win)
+```
+
+###Adjusted Model W2
+```{r}
+int_model_adjusted_w2_win <- lm(cbcl_internal ~ hr_mean_centered + hr_sd_centered + steps_mean_centered + steps_sd_centered + sleep_mean_centered + sleep_sd_centered + sex + age_years_centered + family_income_centered + race + bmi_centered, data = data_w2_sensitivity_win)
+summary(int_model_adjusted_w2_win)
+confint(int_model_adjusted_w2_win)
+performance::r2(int_model_adjusted_w2_win)
+performance::check_model(int_model_adjusted_w2_win)
+performance::model_performance(int_model_adjusted_w2_win)
+performance::check_outliers(int_model_adjusted_w2_win)
+report::report(int_model_adjusted_w2_win)
+
+#Standardize Model
+standardized_int_model_adjusted_w2_win <- arm::standardize(int_model_adjusted_w2_win) #standardize model to interpret estimates
+summary(standardized_int_model_adjusted_w2_win)
+performance::check_model(standardized_int_model_adjusted_w2_win)
+report::report(standardized_int_model_adjusted_w2_win)
+
+hr_w2_plot2_win <- ggplot(data_w2_sensitivity_win, aes(x = hr_mean_centered, y = cbcl_internal)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  viridis::scale_fill_viridis() +
+  theme(
+    legend.position='none'
+  ) + 
+  geom_jitter(shape = '.') + 
+  geom_smooth(method = "lm", color = "white") + 
+  geom_rug(alpha=0.1, size=1.5, outside = TRUE, sides = "tr") + 
+  coord_cartesian(clip = "off") +
+   theme(plot.margin = margin(1, 1, 1, 1, "cm")) + 
+  labs(x = "Resting Heart Rate (centered)", 
+    y = "CBCL Internalizing Symptoms")
+
+hr_w2_plot2_win_extra <- ggExtra::ggMarginal(hr_w2_plot2_win, type = "histogram", fill = "black")
+
+step_w2_plot2_win <- ggplot(data_w2_sensitivity_win, aes(x = steps_mean_centered, y = cbcl_internal)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  viridis::scale_fill_viridis() +
+  theme(
+    legend.position='none'
+  ) + 
+  geom_jitter(shape = '.') + 
+  geom_smooth(method = "lm", color = "white") + 
+  geom_rug(alpha=0.1, size=1.5, outside = TRUE, sides = "tr") + 
+  coord_cartesian(clip = "off") +
+   theme(plot.margin = margin(1, 1, 1, 1, "cm")) + 
+  labs(x = "Step Count (centered)", 
+    y = "CBCL Internalizing Symptoms")
+
+step_w2_plot2_win_extra <- ggExtra::ggMarginal(step_w2_plot2, type = "histogram")
+
+step_sd_w2_plot2_win <- ggplot(data_w2_sensitivity_win, aes(x = steps_sd_centered, y = cbcl_internal)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  viridis::scale_fill_viridis() +
+  theme(
+    legend.position='none'
+  ) + 
+  geom_jitter(shape = '.') + 
+  geom_smooth(method = "lm", color = "white") + 
+  geom_rug(alpha=0.1, size=1.5, outside = TRUE, sides = "tr") + 
+  coord_cartesian(clip = "off") +
+   theme(plot.margin = margin(1, 1, 1, 1, "cm")) + 
+  labs(x = "Variability in Step Count (centered)", 
+    y = "CBCL Internalizing Symptoms")
+
+step_sd_w2_plot2_win_extra <- ggExtra::ggMarginal(step_w2_plot2, type = "histogram")
+
+sleep_w2_plot2_win <- ggplot(data_w2_sensitivity_win, aes(x = sleep_sd_centered, y = cbcl_internal)) +
+  stat_density_2d(aes(fill = ..density..), geom = "raster", contour = FALSE) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  viridis::scale_fill_viridis() +
+  theme(
+    legend.position='none'
+  ) + 
+  geom_jitter(shape = '.') + 
+  geom_smooth(method = "lm", color = "white") + 
+  geom_rug(alpha=0.1, size=1.5, outside = TRUE, sides = "tr") + 
+  coord_cartesian(clip = "off") +
+   theme(plot.margin = margin(1, 1, 1, 1, "cm")) + 
+  labs(x = "Variability in Sleep Duration (centered)", 
+    y = "CBCL Internalizing Symptoms")
+
+sleep_w2_plot2_win_extra <- ggExtra::ggMarginal(sleep_w2_plot2, type = "histogram")
+
+ggpubr::ggarrange(hr_w2_plot2_win, step_w2_plot2_win, step_sd_w2_plot2_win, sleep_w2_plot2_win, 
+          labels = c("A", "B", "C"),
+          ncol = 4, nrow = 1)
+```
+
+###Print Table
+```{r}
+tab_model(standardized_int_model_adjusted_w2_win,
+          dv.labels = c("Adjusted"),
+          show.se = TRUE,
+          string.ci = "Conf. Int (95%)",
+          string.p = "P-Value",
+          digits = 3,
+          file = "~/Desktop/Manuscripts/ABCD Fitbit and Internalizing/CrossSectionalResults_W2_winsorized.doc")
+```
+
+
+
+
+########################################################################
+#Analyses Prospective
+
+##Prospective Data Cleaning
+###Keep fitbit subjects that are at both waves
+```{r}
+fitbit_id <- fitbit %>% 
+  dplyr::filter(wave == "baseline_year_1_arm_1") %>% 
+  dplyr::select(subject_id)
+
+fitbit_prospective <- left_join(fitbit_id, fitbit, by = "subject_id")
+```
+
+###Merge Data
+```{r}
+prospective1 <- left_join(fitbit_prospective, cbcl_data, by = c("subject_id", "subject_key", "sex", "wave"))
+
+#Add demographics
+prospective2 <- left_join(prospective1, demographics, by = "subject_id")
+
+prospective3 <- left_join(prospective2, anthropometrics_data, by = c("subject_id", "wave"))
+
+prospective4 <- left_join(prospective3, ksads_data, by = c("subject_id", "wave"))
+```
+
+###Rename Waves
+```{r}
+prospective4$wave <- as.character(prospective4$wave)
+
+prospective4$wave <- factor(prospective4$wave,
+                            levels = c("baseline_year_1_arm_1", "2_year_follow_up_y_arm_1"),
+                            labels = c("w1", "w2"))
+```
+
+###Remove Duplicate Varables
+```{r}
+prospective_final <- prospective4 %>% 
+  dplyr::select(c(subject_id = subject_id,
+                  wave = wave,
+                  resting_hr_mean = resting_hr_mean,
+                  resting_hr_sd = resting_hr_sd,
+                  step_total_cleaned_mean = step_total_cleaned_mean,
+                  step_total_cleaned_sd = step_total_cleaned_sd,
+                  total_sleep_minutes_mean = total_sleep_minutes_mean,
+                  total_sleep_minutes_sd = total_sleep_minutes_sd,
+                  cbcl_internal = cbcl_internal,
+                  race,
+                  ethnicity,
+                  family_income,
+                  bmi,
+                  ksads_age,
+                  sex))
+```
+
+###Check Data Structure
+```{r}
+str(prospective_final)
+
+#Race Differences
+##Recode race to white and non-white
+prospective_final$race_binary <- prospective_final$race %>% 
+  dplyr::recode( 
+    "race_white" = 0,
+    "race_black" = 1, 
+    "race_native_american" = 1,
+    "race_native_alaskan" = 1,
+    "race_native_hawaiian" = 1,
+    "race_guamanian" = 1,
+    "race_samoan" = 1,
+    "race_other_pacific_islander" = 1,
+    "race_asian_indian" = 1,
+    "race_chinese" = 1,
+    "race_filipino" = 1,
+    "race_japanese" = 1,
+    "race_korean" = 1,
+    "race_vietnamese" = 1,
+    "race_other_asian" = 1,
+    "race_other" = 1,
+    "race_refuse_to_answer" = 1,
+    "race_dont_know" = 1)
+
+#Remove Race
+prospective_final <- prospective_final %>% 
+  dplyr::select(-c(race))
+
+#Change Data Structure
+prospective_final$wave <- as.factor(prospective_final$wave)
+prospective_final$resting_hr_mean <- as.numeric(prospective_final$resting_hr_mean)
+prospective_final$resting_hr_sd <- as.numeric(prospective_final$resting_hr_sd)
+prospective_final$step_total_cleaned_mean <- as.numeric(prospective_final$step_total_cleaned_mean)
+prospective_final$step_total_cleaned_sd <- as.numeric(prospective_final$step_total_cleaned_sd)
+prospective_final$total_sleep_minutes_mean <- as.numeric(prospective_final$total_sleep_minutes_mean)
+prospective_final$total_sleep_minutes_sd <- as.numeric(prospective_final$total_sleep_minutes_sd)
+prospective_final$cbcl_internal <- as.numeric(prospective_final$cbcl_internal)
+prospective_final$race_binary <- as.factor(prospective_final$race)
+prospective_final$ethnicity <- as.factor(prospective_final$ethnicity)
+prospective_final$family_income <- as.numeric(prospective_final$family_income)
+prospective_final$bmi <- as.numeric(prospective_final$bmi)
+prospective_final$ksads_age <- as.numeric(prospective_final$ksads_age)
+prospective_final$sex <- as.factor(prospective_final$sex)
+
+#Change Variables
+prospective_final$age_years <- prospective_final$ksads_age/12
+
+prospective_final <- prospective_final %>% 
+  dplyr::select(-c(ksads_age))
+
+```
+
+###Look at Missing Data
+```{r}
+library(naniar)
+
+#Overall missing data
+prospective_final %>% 
+  vis_miss()
+
+#Combination of missing data
+prospective_final %>% 
+  gg_miss_upset()
+
+#Count of missing data
+prospective_final %>% 
+  gg_miss_var()
+```
+
+###Pivot Data Wider
+```{r}
+final_pros_wide <- prospective_final %>% 
+  dplyr::select(subject_id, wave, age_years, resting_hr_mean, step_total_cleaned_mean, step_total_cleaned_sd, total_sleep_minutes_sd, cbcl_internal, family_income, bmi)
+
+#Pivot Wider
+final_pros_wide <- final_pros_wide %>% 
+  pivot_wider(id_cols = subject_id, names_from = wave, values_from = c(3:10))
+
+demo <- prospective_final %>% 
+  dplyr::filter(wave == "w1") %>% 
+  dplyr::select(subject_id, sex, race_binary)
+
+final_pros_wide <- left_join(final_pros_wide, demo, by = "subject_id")
+
+#Scale Steps. This scales steps to mean = 0 and variance = 1
+final_pros_wide$step_total_scale_w1 <- scale(final_pros_wide$step_total_cleaned_mean_w1)
+final_pros_wide$step_total_scale_w2 <- scale(final_pros_wide$step_total_cleaned_mean_w2)
+final_pros_wide$step_total_cleaned_sd_scale_w1 <- scale(final_pros_wide$step_total_cleaned_sd_w1)
+final_pros_wide$step_total_cleaned_sd_scale_w2 <- scale(final_pros_wide$step_total_cleaned_sd_w2)
+```
+
+###Plot Variability
+```{r}
+#Colors
+green <- "#6BB961"
+blue <- "#325A78"
+yellow <- "#B5D84C"
+purple <- "#310F51"
+
+#Internalizing
+internal_variability <- ggplot(data = prospective_final, aes(x = wave, y = cbcl_internal, color)) +
+  geom_line(aes(group = subject_id), alpha = .4, color = green) +
+  geom_point(position = position_jitter(w = .1), alpha = .4, color = green) +
+  stat_summary(geom = "smooth", color = "red") +
+  theme_classic() +
+  labs(x = "Wave", y = "CBCL Internalizing Symptoms")
+
+#Resting HR Mean
+hr_variability <- ggplot(data = prospective_final, aes(x = wave, y = resting_hr_mean)) +
+  geom_line(aes(group = subject_id), alpha = .4, color = blue) +
+  geom_point(position = position_jitter(w = .1), alpha = .4, color = blue) +
+  stat_summary(geom = "smooth", color = "red") +
+  theme_classic() +
+  labs(x = "Wave", y = "Resting Heart Rate")
+
+#Step Count Mean
+step_variability <- ggplot(data = prospective_final, aes(x = wave, y = step_total_cleaned_mean)) +
+  geom_line(aes(group = subject_id), alpha = .4, color = yellow) +
+  geom_point(position = position_jitter(w = .1), alpha = .4, color = yellow) +
+  stat_summary(geom = "smooth", color = "red") +
+  theme_classic() +
+  labs(x = "Wave", y = "Step Count")
+
+#Sleep Duration Mean
+sleep_variability <- ggplot(data = prospective_final, aes(x = wave, y = total_sleep_minutes_mean)) +
+  geom_line(aes(group = subject_id), alpha = .4, color = purple) +
+  geom_point(position = position_jitter(w = .1), alpha = .4, color = purple) +
+  stat_summary(geom = "smooth", color = "red") +
+  ylim(300, 610) +
+  theme_classic() +
+  labs(x = "Wave", y = "Sleep Duration")
+
+ggpubr::ggarrange(internal_variability, hr_variability, step_variability, sleep_variability, 
+          labels = c("A", "B", "C", "D"),
+          ncol = 2, nrow = 2)
+```
+
+###Shorten Variable Names
+```{r}
+final_pros_wide_rename <- final_pros_wide %>% 
+  dplyr::select(subject_id,
+                rhr_w1 = resting_hr_mean_w1,
+                rhr_w2 = resting_hr_mean_w2,
+                sm_w1 = step_total_scale_w1,
+                sm_w2 = step_total_scale_w2,
+                ssd_w1 = step_total_cleaned_sd_scale_w1,
+                ssd_w2 = step_total_cleaned_sd_scale_w2,
+                sleepsd_w1 = total_sleep_minutes_sd_w1,
+                sleepsd_w2 = total_sleep_minutes_sd_w2,
+                internal_w1 = cbcl_internal_w1,
+                internal_w2 = cbcl_internal_w2)
+```
+
+##Analyses Prospective
+```{r}
+library(lavaan)
+```
+
+###CLPM
+```{r}
+clpm <- '
+internal_w2 ~ internal_w1 + rhr_w1 + sm_w1 + ssd_w1 + sleepsd_w1
+
+rhr_w2 ~ internal_w1 + rhr_w1
+
+sm_w2 ~ internal_w1 + sm_w1
+
+ssd_w2 ~ internal_w1 + ssd_w1
+
+sleepsd_w2 ~ internal_w1 + sleepsd_w1
+
+#Plus add in all the other covariances
+internal_w1 ~~ rhr_w1
+internal_w2 ~~ rhr_w2
+internal_w1 ~~ sm_w1
+internal_w2 ~~ sm_w2
+internal_w1 ~~ ssd_w1
+internal_w2 ~~ ssd_w2
+internal_w1 ~~ sleepsd_w1
+internal_w2 ~~ sleepsd_w2'
+
+clpmfit <- sem(clpm, data = final_pros_wide_rename, missing = 'ML', meanstructure = T, int.ov.free = T)
+summary(clpmfit, standardized = T)
+```
